@@ -9,6 +9,8 @@ In seperate terminal run redis-cli. (127.0.0.1:6379> )
 
 Hashes let us associate more than one value to a single key.
 
+TablePlus to visualize your Redis database.
+
 
 
 ## Pug
