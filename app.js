@@ -8,7 +8,6 @@ const { promisify } = require('util');
 const { formatDistance } = require("date-fns");
 
 const app = express();
-x
 
 //store session data in redis
 const RedisStore = require("connect-redis")(session);
@@ -45,7 +44,9 @@ const ahkeys = promisify(redis_client.hkeys).bind(redis_client);
 const aincr = promisify(redis_client.incr).bind(redis_client);
 const alrange = promisify(redis_client.lrange).bind(redis_client);
 
-app.get("/", (req, res) => {
+app.get("/", homepage);
+
+async function homepage(req, res){
   if(req.session.userid)
   {
   const currentUserName = await ahget(`user: ${req.session.userid}`,"username");
@@ -58,27 +59,29 @@ app.get("/", (req, res) => {
   for(post of posts){
     const timestamp = await ahget(`post:${post}`,"timestamp");
     const timeString = formatDistance(new Date(), new Date(parseInt(timestamp)));
-  }
+
 
   timeline.push({
     message: await ahget(`post:${post}`, "message"),
     author: await ahget(`post:${post}`, "username"),
     timeString: timeString,
-  });
+  });  }
 
-  res.render("dashboard",{
+  res.render('dashboard', {
     users: users.filter(
-      (user) => user !== currentUserName && following.indexOf(user)=== -1),
-      currentUsername,
-      timeline
+      (user) => user !== currentUserName && following.indexOf(user) === -1
+    ),
+    currentUserName,
+    timeline
   });
-  }
-  else{
+  }else{
     res.render("login");
   }
-});
+};
 
-app.post("/", (req, res) => {
+app.post("/", postRouteHomepage);
+
+ async function postRouteHomepage(req, res) {
   const { username, password } = req.body;
   console.log("req.body, username, password ... \n",
     req.body, username, password);
@@ -92,14 +95,11 @@ app.post("/", (req, res) => {
   }
 
   //function which saves the userid to the session
-  const saveSessionAndRenderDashboard = (userid) => {
+  const saveSessionAndRenderDashboard = userid => {
     req.session.userid = userid;
     req.session.save();
-    redis_client.hkeys("users",(err,users)=>{
-      res.render("dashboard",{users,});
-    })
-  
-  };
+    res.redirect('/');
+  }
 
   //function to handle new user signup
   const handleSignUp = (username, password) => {
@@ -113,44 +113,44 @@ app.post("/", (req, res) => {
   });
   }
 
-//function to handle login of existing user
-const handleLogin = (userid, password) => {
-  redis_client.hget(`user:${userid}`,"hash", async (err, hashed_password) => {
-      const is_pass_valid = await bcrypt.compare(password, hashed_password);
-      if (is_pass_valid) {
-        //password ok
-        saveSessionAndRenderDashboard(userid);
-      } else {
-        //wrong password
-        console.log("err",err);
-        res.render("error", {
-          message: "Incorrect password.",
-        });
-        return;
+  //function to handle login of existing user
+  const handleLogin = (userid, password) => {
+    redis_client.hget(`user:${userid}`,"hash", async (err, hashed_password) => {
+        const is_pass_valid = await bcrypt.compare(password, hashed_password);
+        if (is_pass_valid) {
+          //password ok
+          saveSessionAndRenderDashboard(userid);
+        } else {
+          //wrong password
+          console.log("err",err);
+          res.render("error", {
+            message: "Incorrect password.",
+          });
+          return;
+        }
       }
-    }
-  );
-}
-  //in users look up the username
-  redis_client.hget("users", username, (err, userid) => {
-    //user does not exist, so SIGNUP procedure
-    if (!userid) {
-      console.log("signup procedure");
-      console.log("userid", userid);
+    );
+  }
+    //in users look up the username
+    redis_client.hget("users", username, (err, userid) => {
+      //user does not exist, so SIGNUP procedure
+      if (!userid) {
+        console.log("signup procedure");
+        console.log("userid", userid);
 
-      //handleSignUp
-      handleSignUp(username,password);
-    } 
-    //user exists so LOGIN procedure
-    else {
-      console.log("login procedure");
-      console.log("userid", userid);
+        //handleSignUp
+        handleSignUp(username,password);
+      } 
+      //user exists so LOGIN procedure
+      else {
+        console.log("login procedure");
+        console.log("userid", userid);
 
-      //handleLogin
-      handleLogin(userid,password);
-    } 
-  });
-});
+        //handleLogin
+        handleLogin(userid,password);
+      } 
+    });
+};
 
 //ROUTE: user wants to post a message (a tweet)
 app.get("/post", (req,res)=>{
@@ -164,7 +164,9 @@ app.get("/post", (req,res)=>{
 
 //ROUTE: will be used to save user messages
 // HMSET post:<postid> userid <userid> message <message> timestamp <timestamp>
-app.post("/post", (req,res) => {
+app.post("/post",saveMessages);
+
+async function saveMessages(req,res){
   if(!req.session.userid){
     res.render("login");
     // need return otherwise will continue to execute code below
@@ -187,27 +189,21 @@ app.post("/post", (req,res) => {
 redis_client.lpush(`timeline:${currentUserName}`,postid);
 const followers = await asmembers(`followers:${currentUserName}`);
 for(follower of followers){
-  redis_client.lpush(`timeline:${follower}`,postid);
+  redis_client.lpush(`timeline:${follower}`, postid)
 }
 
 res.redirect("/");
-
-
-  //INCR: redis_client.incr will always give us the next postid
-  //postid assigned to each message
-  // redis_client.incr("postid", async(err,postid)=>{
-  //   redis_client.hmset(`post:${postid}`,"userid",req.session.userid,"message",message,
-  //   "timestampt",Date.now());
-  //   res.render("dashboard");
-  // });
-});
+};
 
 //ROUTE: display other users to to follow
-app.post("/follow", (req,res)=>{
+app.post("/follow", displayWhoToFollow);
+
+async function displayWhoToFollow(req,res){
   if(!req.session.userid){
     res.render("login");
     return;
   }
+
   const {username} = req.body;
   redis_client.hget(`user:${req.session.userid}`,
   "username", (err,currentUserName)=>{
@@ -217,7 +213,7 @@ app.post("/follow", (req,res)=>{
   }
   )
   res.redirect("/");
-});
+};
 
 
 
